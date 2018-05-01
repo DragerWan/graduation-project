@@ -1,0 +1,49 @@
+{
+	"comment": "",
+	"ignore": "test",
+	"package": [
+		{
+			"checksumSHA1": "5lMzZtb4uUo+N/J+cK7LqwR6bQQ=",
+			"path": "github.com/gomodule/redigo/internal",
+			"revision": "9352ab68be133885e31a43661cc42a220cb8e821",
+			"revisionTime": "2018-04-01T19:18:55Z"
+		},
+		{
+			"checksumSHA1": "4VyihtcnLALw/MfaGgyfIyxvuyk=",
+			"path": "github.com/gomodule/redigo/redis",
+			"revision": "9352ab68be133885e31a43661cc42a220cb8e821",
+			"revisionTime": "2018-04-01T19:18:55Z"
+		},
+		{
+			"checksumSHA1": "pIHVVyM0sYZC4hWuY0nJjd7oOKk=",
+			"path": "github.com/lionsoul2014/ip2region/binding/golang",
+			"revision": "42764c495b400a427da10aea7b342c4df5af913b",
+			"revisionTime": "2018-04-09T01:31:48Z"
+		},
+		{
+			"checksumSHA1": "l6Xsviv92QUfOsXQgfZ+2K1A8bw=",
+			"path": "github.com/oschwald/geoip2-golang",
+			"revision": "7118115686e16b77967cdbf55d1b944fe14ad312",
+			"revisionTime": "2018-02-22T21:45:52Z"
+		},
+		{
+			"checksumSHA1": "Jgr3L4ZtW8Y59yh6yyhew/KWSTA=",
+			"path": "github.com/oschwald/maxminddb-golang",
+			"revision": "c5bec84d1963260297932a1b7a1753c8420717a7",
+			"revisionTime": "2018-02-25T17:45:17Z"
+		},
+		{
+			"checksumSHA1": "5BAifTvbu6TCdgOEKRabDIIjcp4=",
+			"path": "golang.org/x/sys/unix",
+			"revision": "f67ecc163a74fbeea4cb1db0a101dcd07201464a",
+			"revisionTime": "2018-04-29T07:29:05Z"
+		},
+		{
+			"checksumSHA1": "Dfz4tGItokMvHZENCsBmPPB8FGQ=",
+			"path": "golang.org/x/sys/windows",
+			"revision": "f67ecc163a74fbeea4cb1db0a101dcd07201464a",
+			"revisionTime": "2018-04-29T07:29:05Z"
+		}
+	],
+	"rootPath": "graduation-project"
+}
