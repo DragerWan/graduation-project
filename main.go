@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math/rand"
 	//"strings"
-	"encoding/json"
 
 	"math"
 	"net"
@@ -12,11 +11,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gomodule/redigo/redis"
 	"github.com/lionsoul2014/ip2region/binding/golang"
 	"github.com/oschwald/geoip2-golang"
 	//"sort"
-	"sort"
+	//"bufio"
+	"time"
 )
 
 /*func passwd(d * redis.dialOptions){
@@ -32,10 +31,15 @@ type NodeInfo struct {
 	HttpPort  int     `json:"http_port"`
 	HttpsPort int     `json:"https_port"`
 	UploadBW  float32 `json:"upload_bw"`
-	NodeType  string  `json:"type"`
-	ISP       string  `json:"isp"`
-	ASN       int     `json:"asn"`
-	Dis       uint    `json:"distance"`
+	RemainBW  float32
+	RemainBW_real float32
+	NodeType  string `json:"type"`
+	ISP       string `json:"isp"`
+	ASN       int    `json:"asn"`
+	Dis       uint   `json:"distance"`
+	Weight    int
+	CurrentWeight int
+	linkHistory []int
 }
 type NodeInfo1 struct {
 	Mac      string `json:"mac_addr"`
@@ -44,19 +48,21 @@ type NodeInfo1 struct {
 
 type NodeInfos []NodeInfo
 
+
 var (
-	nodes = NodeInfos{} //�ڵ���Ϣ
+	nodes = NodeInfos{} //服务器预测节点信息
+	return_nodes_num = 30 //每个请求返回节点数
+	use_nodes_num = 5//实际使用节点数
+	usable_rate = float32(0.8) //每个节点可用概率
+	predicted_usage = float32(0.2) //预测每个节点被调用一次占用的带宽
+	real_usage = float32(0.5) //实际每个节点被使用一次占用的带宽
+	minutes_total = 20//总分钟数
+	minutes_video = 3//视频播放时间
+	minutes_update = 1//节点信息同步时间间隔
+	request_per_minute = 500//每分钟请求数
 )
 
-func (ns NodeInfos) Len() int {
-	return len(ns)
-}
-func (ns NodeInfos) Swap(i, j int) {
-	ns[i], ns[j] = ns[j], ns[i]
-}
-func (ns NodeInfos) Less(i, j int) bool {
-	return ns[i].Dis < ns[j].Dis
-}
+
 
 func test(opt ...interface{}) {
 	if len(opt) == 0 {
@@ -67,13 +73,52 @@ func test(opt ...interface{}) {
 		fmt.Println(n1, n2)
 	}
 }
-func main() {
 
+func updateNodeInfo() {
+	for i := 0; i < len(nodes); i++ {
+		nodes[i].RemainBW = nodes[i].RemainBW_real
+	}
+}
+//每分钟更新节点服务完成回收的带宽
+func checkNodeInfo() {
+	//fmt.Println("checkNodeInfo")
+	//fmt.Print(loadBalancingIndexReal(nodes), "")
+	for i := 0; i < len(nodes); i++ {
+		if nodes[i].linkHistory[minutes_video - 1] != 0 {
+			nodes[i].RemainBW_real += float32(nodes[i].linkHistory[minutes_video - 1]) * real_usage
+		}
+		for j := minutes_video - 1; j > 0; j-- {
+			nodes[i].linkHistory[j] = nodes[i].linkHistory[j - 1]
+		}
+		nodes[i].linkHistory[0] = 0
+	}
+	//fmt.Println(loadBalancingIndexReal(nodes))
+}
+
+func main() {
+	rand.Seed(time.Now().Unix())
+
+	initNodes()
+
+
+	for i := 0; i <= minutes_total; i++ {
+		if i % minutes_update == 0 && i > 0 {
+			//fmt.Println("updateNodeInfo")
+			//fmt.Print(loadBalancingIndex(nodes), "")
+			updateNodeInfo()
+			//fmt.Println(loadBalancingIndex(nodes))
+		}
+		if i > 0 {
+			checkNodeInfo()
+		}
+
+		test_Balance1(request_per_minute, 30)
+	}
 	//updateRedis()
 	//makeIP()
 	//testScores()
 
-	c, err := redis.Dial("tcp", "127.0.0.1:6379", redis.DialPassword("123456"))
+	/*c, err := redis.Dial("tcp", "127.0.0.1:6379", redis.DialPassword("123456"))
 	if err != nil {
 		fmt.Println("Connect to redis error", err)
 		return
@@ -85,7 +130,7 @@ func main() {
 	fmt.Println(err)
 	if err != nil {
 		fmt.Println("err is not nil")
-	}
+	}*/
 
 	//test()
 
@@ -103,6 +148,11 @@ func main() {
 	  fmt.Println(ni)
 	  testRTT(ni, 20)*/
 
+
+
+
+
+
 	//clientIP:= "61.141.252.238"
 
 	/*nodes = nodes[:20]
@@ -116,246 +166,22 @@ func main() {
 
 }
 
-func makeIP() {
-	c, err := redis.Dial("tcp", "127.0.0.1:6379", redis.DialPassword("123456"))
-	if err != nil {
-		fmt.Println("Connect to redis error", err)
-		return
+
+
+
+
+
+
+
+
+func Shuffle(vals []NodeInfo) []NodeInfo {
+	r := rand.New(rand.NewSource(time.Now().Unix()))
+	ret := make([]NodeInfo, len(vals))
+	perm := r.Perm(len(vals))
+	for i, randIndex := range perm {
+		ret[i] = vals[randIndex]
 	}
-	defer c.Close()
-	c.Do("SELECT", 1)
-
-	//ɾ��������
-	values, _ := redis.Values(c.Do("KEYS", "fv:local:ip_nodes*"))
-	//for i := 0; i < len(values); i++ {
-	for i := 0; i < len(values); i++ {
-
-		_, err := c.Do("DEL", string((values[i]).([]byte)))
-		if err != nil {
-			fmt.Println("DEL failed: ", err)
-			return
-		}
-
-	}
-	fmt.Println("DEL completed!")
-	//��������
-	values, _ = redis.Values(c.Do("KEYS", "fv:report:node_infos:*"))
-	for i := 0; i < len(values); i++ {
-
-		//val := strings.Replace(string([]byte(string(values[i].([]uint8)))[14:]), "-", ":", -1)
-		node := &NodeInfo1{}
-		nodeData, err := redis.String(c.Do("GET", string((values[i]).([]byte))))
-		if err != nil {
-			fmt.Println("Get nodeData failed: ", err)
-			continue
-		}
-		err = json.Unmarshal([]byte(nodeData), node)
-		if err != nil {
-			fmt.Println("json.Unmarshal failed: ", err)
-			continue
-		}
-
-		_, err = c.Do("SADD", "fv:local:ip_nodes:"+node.PublicIp, node.Mac)
-		if err != nil {
-			fmt.Println("Redis SADD failed: ", err)
-			return
-		}
-
-	}
-	fmt.Println("Update completed!")
-}
-
-func testScores() {
-	c, err := redis.Dial("tcp", "127.0.0.1:6379", redis.DialPassword("123456"))
-	if err != nil {
-		fmt.Println("Connect to redis error", err)
-		return
-	}
-	defer c.Close()
-	c.Do("SELECT", 1)
-
-	//ɾ��������
-	values, _ := redis.Strings(c.Do("ZRANGE", "fv:cdn:file_nodes:qq.webrtc.win/tv/Pear-Demo-Corporate-Video.mp4", 0, -1, "WITHSCORES"))
-	//for i := 0; i < len(values); i++ {
-	/*for i := 0; i < len(values); i++ {
-		if i/2 == 0 {
-			fmt.Println(string((values[i]).([]byte)))
-		}else {
-		fmt.Println((values[i]).(int))
-		}
-	}*/
-	fmt.Println(len(values))
-	for i := 0; i < len(values); i++ {
-
-		if i%2 == 0 {
-			fmt.Print("even ")
-			fmt.Println(values[i])
-		} else {
-			fmt.Print("odd ")
-			fmt.Println(strconv.Atoi(values[i]))
-		}
-
-	}
-	fmt.Println("End")
-
-}
-
-func updateRedis() {
-	c, err := redis.Dial("tcp", "127.0.0.1:6379", redis.DialPassword("123456"))
-	if err != nil {
-		fmt.Println("Connect to redis error", err)
-		return
-	}
-	defer c.Close()
-	c.Do("SELECT", 1)
-
-	//ɾ��������
-	values, _ := redis.Values(c.Do("KEYS", "fv:local:small:node_infos*"))
-	//for i := 0; i < len(values); i++ {
-	for i := 0; i < len(values); i++ {
-
-		_, err := c.Do("DEL", string((values[i]).([]byte)))
-		if err != nil {
-			fmt.Println("DEL failed: ", err)
-			return
-		}
-
-	}
-	fmt.Println("DEL completed!")
-	//��������
-	values, _ = redis.Values(c.Do("KEYS", "fv:report:node_infos:*"))
-	for i := 0; i < len(values); i += 100 {
-
-		//val := strings.Replace(string([]byte(string(values[i].([]uint8)))[14:]), "-", ":", -1)
-		node := &NodeInfo{}
-		nodeData, err := redis.String(c.Do("GET", string((values[i]).([]byte))))
-		if err != nil {
-			fmt.Println("Get nodeData failed: ", err)
-			continue
-		}
-		err = json.Unmarshal([]byte(nodeData), node)
-		if err != nil {
-			fmt.Println("json.Unmarshal failed: ", err)
-			continue
-		}
-		node.ISP, _ = getISP(node.PublicIp)
-		node.ASN, _ = getASN(node.PublicIp)
-
-		if node.UploadBW > 0.01 && (node.ISP == "����" || node.ISP == "�ƶ�" || node.ISP == "��ͨ") { //ֻ������upload_bw��������Ӫ�̵Ľڵ�
-			nodeJS, err := json.Marshal(node)
-			if err != nil {
-				fmt.Println("json.Marshal failed: ", err)
-				continue
-			}
-			_, err = c.Do("SET", "fv:local:small:node_infos:"+strings.Replace(node.Mac, ":", "-", -1), nodeJS)
-			if err != nil {
-				fmt.Println("Redis SET failed: ", err)
-				return
-			}
-		}
-
-	}
-	fmt.Println("Update completed!")
-}
-
-func makeNewSet() {
-	c, err := redis.Dial("tcp", "127.0.0.1:6379", redis.DialPassword("123456"))
-	if err != nil {
-		fmt.Println("Connect to redis error", err)
-		return
-	}
-	defer c.Close()
-	c.Do("SELECT", 1)
-
-	//ɾ��������
-	_, err = c.Do("ZREMRANGEBYRANK", "fv:local:file_nodes:qq.webrtc.win/tv/Pear-Demo-Yosemite_National_Park.mp4", 0, -1)
-	if err != nil {
-		fmt.Println("ZREMRANGEBYRANK failed: ", err.Error())
-	}
-
-	fmt.Println("DEL completed!")
-	//��������
-	values, _ := redis.Values(c.Do("KEYS", "fv:report:node_infos:*"))
-	for i := 0; i < len(values); i += 100 {
-
-		//val := strings.Replace(string([]byte(string(values[i].([]uint8)))[14:]), "-", ":", -1)
-		node := &NodeInfo{}
-		nodeData, err := redis.String(c.Do("GET", string((values[i]).([]byte))))
-		if err != nil {
-			fmt.Println("Get nodeData failed: ", err)
-			continue
-		}
-		err = json.Unmarshal([]byte(nodeData), node)
-		if err != nil {
-			fmt.Println("json.Unmarshal failed: ", err)
-			continue
-		}
-		node.ISP, _ = getISP(node.PublicIp)
-		node.ASN, _ = getASN(node.PublicIp)
-
-		ispNum, err := redis.Int(c.Do("HGET", "fv:local:isp_num", node.ISP))
-		if err != nil {
-			ispMax, err := redis.Int(c.Do("HGET", "fv:local:isp_num", "max"))
-			if err != nil {
-				ispMax = 0
-				ispNum = 0
-			}
-			_, err = c.Do("HSET", "fv:local:isp_num", node.ISP, ispMax)
-			_, err = c.Do("HSET", "fv:local:isp_num", "max", ispMax+1)
-		}
-		score := ispNum << 40
-		score += node.ASN << 32 //TODO ����IP��ת��
-
-		if node.UploadBW > 0.01 && (node.ISP == "����" || node.ISP == "�ƶ�" || node.ISP == "��ͨ") { //ֻ������upload_bw��������Ӫ�̵Ľڵ�
-			nodeJS, err := json.Marshal(node)
-			if err != nil {
-				fmt.Println("json.Marshal failed: ", err)
-				continue
-			}
-			_, err = c.Do("SET", "fv:local:small:node_infos:"+strings.Replace(node.Mac, ":", "-", -1), nodeJS)
-			if err != nil {
-				fmt.Println("Redis SET failed: ", err)
-				return
-			}
-		}
-
-	}
-	fmt.Println("Update completed!")
-}
-
-func initNodes() {
-	c, err := redis.Dial("tcp", "127.0.0.1:6379", redis.DialPassword("123456"))
-	if err != nil {
-		fmt.Println("Connect to redis error", err)
-		return
-	}
-	defer c.Close()
-	c.Do("SELECT", 1)
-
-	values, _ := redis.Values(c.Do("KEYS", "fv:local:small:node_infos:*"))
-	if len(values) == 0 {
-		updateRedis()
-		values, _ = redis.Values(c.Do("KEYS", "fv:local:small:node_infos:*"))
-	}
-	for i := 0; i < len(values); i++ {
-
-		//val := strings.Replace(string([]byte(string(values[i].([]uint8)))[14:]), "-", ":", -1)
-		node := &NodeInfo{}
-		nodeData, err := redis.String(c.Do("GET", string((values[i]).([]byte))))
-		if err != nil {
-			fmt.Println("Get nodeData failed: ", err)
-			continue
-		}
-		err = json.Unmarshal([]byte(nodeData), node)
-		if err != nil {
-			fmt.Println("json.Unmarshal failed: ", err)
-			continue
-		}
-		/*if (strings.Compare(clientISP, node.Region.ISP) != 0) {
-		    node.Dis += 128 // 2^7
-		}*/
-		nodes = append(nodes, *node)
-	}
+	return ret
 }
 
 func getISP(ipStr string) (string, error) {
@@ -412,7 +238,7 @@ func DisIP(ip_a, ip_b string) (dis uint) {
 	return
 }
 
-func getNodes_mine(ipStr string, n int) []NodeInfo {
+/*func getNodes_mine(ipStr string, n int) []NodeInfo {
 
 	clientISP, err := getISP(ipStr)
 	if err != nil {
@@ -437,24 +263,57 @@ func getNodes_mine(ipStr string, n int) []NodeInfo {
 	}
 	sort.Sort(nodes)
 	return nodes[:n]
-}
+}*/
 
-func getNodes_random(n int) []NodeInfo {
-	dataLen := len(nodes)
-	shuffled := make([]NodeInfo, dataLen)
-	for i, j := range rand.Perm(dataLen) {
-		shuffled[j] = nodes[i]
-	}
-	return shuffled[:n]
-}
 
-func getNodes_ip(ipStr string, n int) []NodeInfo {
+
+/*func getNodes_ip(ipStr string, n int) []NodeInfo {
 
 	for i := 0; i < len(nodes); i++ {
 		nodes[i].Dis = DisIP(ipStr, nodes[i].PublicIp)
 	}
 	sort.Sort(nodes)
 	return nodes[:n]
+}*/
+
+
+
+
+
+func loadBalancingIndex( nodeInfos []NodeInfo) float32 {
+	var a float32
+	var b float32
+	var c float32
+	for _, node := range nodeInfos {
+		c = (node.UploadBW - node.RemainBW) / node.UploadBW
+		if c > 1 {
+			c = 1
+			node.RemainBW = 0
+		}
+		a += c
+		b += c * c
+	}
+	return (a * a) / (float32(len(nodes)) * b)
+
+}
+func loadBalancingIndexReal( nodeInfos []NodeInfo) float32 {
+	var a float32
+	var b float32
+	var c float32
+	for _, node := range nodeInfos {
+		c = (node.UploadBW - node.RemainBW_real) / node.UploadBW
+		if c > 1 {
+			c = 1
+			node.RemainBW_real = 0
+		}
+		a += c
+		b += c * c
+	}
+	if b == 0 {
+		fmt.Println("b = 0!")
+	}
+	return (a * a) / (float32(len(nodes)) * b)
+
 }
 
 func testRTT(ni []NodeInfo, sgm int) {
